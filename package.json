@@ -1,0 +1,21 @@
+{
+  "name": "quick-fake-api",
+  "version": "0.1.0",
+  "description": "A versatile CLI tool for quickly setting up mock API endpoints",
+  "main": "src/index.ts",
+  "scripts": {
+    "build": "bun build ./src/index.ts --compile --outfile quick-fake-api"
+  },
+  "dependencies": {
+    "yargs-parser": "^21.1.1",
+    "chalk": "^5.2.0",
+    "ajv": "^8.12.0"
+  },
+  "devDependencies": {
+    "bun-types": "latest"
+  },
+  "type": "module",
+  "author": "alkinum.io",
+  "maintainers": ["BackRunner"],
+  "license": "MIT"
+}
