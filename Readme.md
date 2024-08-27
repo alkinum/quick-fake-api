@@ -23,17 +23,14 @@ Quick Fake API is a versatile CLI tool for quickly setting up mock API endpoints
 
 ## Usage
 
-Once installed, you can run the tool using:
+You can run the tool using command-line arguments or by providing a configuration file.
 
-```
+### Command-line Usage
+
+```bash
 quick-fake-api [options] [path]
 ```
 
-For example:
-
-```
-quick-fake-api -p 8080 -h api.example.com -m GET,POST /users
-```
 
 ### Options
 
@@ -45,6 +42,43 @@ quick-fake-api -p 8080 -h api.example.com -m GET,POST /users
 - `-P, --path <path>`: Specify the API path (alternative to positional argument)
 - `-V, --validate <schema>`: Specify a JSON schema to validate the request body
 - `-H, --headers <json>`: Specify custom headers for the response (JSON string)
+- `-c, --config <file>`: Specify a configuration file (JSON or YAML)
+
+### Configuration File
+
+You can use a configuration file to set up multiple paths with different settings. The configuration file can be in JSON or YAML format.
+
+Example configuration file (config.yaml):
+
+```yaml
+port: 8080
+host: api.example.com
+paths:
+  - path: /users
+    methods: [GET, POST]
+    response: ./responses/users.json
+    statusCode: 200
+    headers:
+      X-Custom-Header: CustomValue
+  - path: /products
+    methods: [GET]
+    statusCode: 200
+    validationSchema:
+      type: object
+      properties:
+        id:
+          type: integer
+```
+
+
+To use the configuration file:
+
+```bash
+quick-fake-api -c config.yaml
+```
+
+
+When using a configuration file, all other command-line options are ignored.
 
 ### Examples
 
@@ -70,12 +104,6 @@ quick-fake-api -p 8080 -h api.example.com -m GET,POST /users
 
    ```
    quick-fake-api -V '{"type":"object","properties":{"name":{"type":"string"}}}' /validate
-   ```
-
-5. Set custom headers:
-
-   ```
-   quick-fake-api -p 8080 -H '{"X-Custom-Header": "CustomValue"}' /api
    ```
 
 ## Detailed Parameter Explanation

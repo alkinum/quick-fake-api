@@ -1,23 +1,14 @@
 import Ajv from 'ajv';
+import { PathConfig } from './types';
 
-import { Config } from './types';
-
-export async function handleRequest(req: Request, config: Config): Promise<Response> {
-  if (config.host && new URL(req.url).hostname !== config.host) {
-    return new Response('Not Found', { status: 404 });
-  }
-
-  if (config.methods && !config.methods.includes(req.method)) {
+export async function handleRequest(req: Request, pathConfig: PathConfig): Promise<Response> {
+  if (pathConfig.methods && !pathConfig.methods.includes(req.method)) {
     return new Response('Method Not Allowed', { status: 405 });
   }
 
-  if (new URL(req.url).pathname !== config.path) {
-    return new Response('Not Found', { status: 404 });
-  }
-
-  if (config.validationSchema) {
+  if (pathConfig.validationSchema) {
     const ajv = new Ajv();
-    const validate = ajv.compile(config.validationSchema);
+    const validate = ajv.compile(pathConfig.validationSchema);
     const body = await req.json();
     if (!validate(body)) {
       return new Response(JSON.stringify({ error: 'Invalid request body', details: validate.errors }), {
@@ -30,8 +21,8 @@ export async function handleRequest(req: Request, config: Config): Promise<Respo
   let responseBody: string | ArrayBuffer;
   let contentType = 'application/json';
 
-  if (config.response) {
-    const file = Bun.file(config.response);
+  if (pathConfig.response) {
+    const file = Bun.file(pathConfig.response);
     responseBody = await file.arrayBuffer();
     contentType = file.type;
   } else {
@@ -39,7 +30,7 @@ export async function handleRequest(req: Request, config: Config): Promise<Respo
   }
 
   return new Response(responseBody, {
-    status: config.statusCode,
-    headers: { 'Content-Type': contentType, ...config.headers },
+    status: pathConfig.statusCode,
+    headers: { 'Content-Type': contentType, ...pathConfig.headers },
   });
 }
