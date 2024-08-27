@@ -1,18 +1,25 @@
-import chalk from 'chalk';
-import { Config, PathConfig } from './types';
-import yaml from 'js-yaml';
+import chalk from "chalk";
+import yaml from "js-yaml";
+
+import { Config, PathConfig } from "./types";
+
+class ConfigValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ConfigValidationError";
+  }
+}
 
 export async function loadConfigFile(filePath: string): Promise<Config> {
   const fileContent = await Bun.file(filePath).text();
   let config: Config;
 
-  if (filePath.endsWith('.json')) {
+  if (filePath.endsWith(".json")) {
     config = JSON.parse(fileContent);
-  } else if (filePath.endsWith('.yaml') || filePath.endsWith('.yml')) {
+  } else if (filePath.endsWith(".yaml") || filePath.endsWith(".yml")) {
     config = yaml.load(fileContent) as Config;
   } else {
-    console.error(chalk.red('Unsupported file format. Please use JSON or YAML.'));
-    process.exit(1);
+    throw new ConfigValidationError("Unsupported file format. Please use JSON or YAML.");
   }
 
   return config;
@@ -20,31 +27,44 @@ export async function loadConfigFile(filePath: string): Promise<Config> {
 
 export function validateConfig(config: Config): void {
   if (isNaN(config.port) || config.port < 1 || config.port > 65535) {
-    console.error(chalk.red('Invalid port number'));
-    process.exit(1);
+    throw new ConfigValidationError("Invalid port number");
   }
 
   config.paths.forEach(validatePathConfig);
 }
 
 function validatePathConfig(pathConfig: PathConfig): void {
-  if (pathConfig.methods && !pathConfig.methods.every(m => ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD'].includes(m))) {
-    console.error(chalk.red(`Invalid HTTP method for path ${pathConfig.path}`));
-    process.exit(1);
+  if (
+    pathConfig.methods &&
+    !pathConfig.methods.every((m) =>
+      ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"].includes(m),
+    )
+  ) {
+    throw new ConfigValidationError(`Invalid HTTP method for path ${pathConfig.path}`);
   }
 
   if (pathConfig.statusCode < 100 || pathConfig.statusCode > 599) {
-    console.error(chalk.red(`Invalid status code for path ${pathConfig.path}`));
-    process.exit(1);
+    throw new ConfigValidationError(`Invalid status code for path ${pathConfig.path}`);
   }
 
-  if (pathConfig.response && !Bun.file(pathConfig.response).exists()) {
-    console.error(chalk.red(`Response file does not exist for path ${pathConfig.path}`));
-    process.exit(1);
+  if (pathConfig.response) {
+    // Check if it's a valid JSON string
+    try {
+      JSON.parse(pathConfig.response);
+    } catch (e) {
+      // If not a JSON string, check if it's a file path
+      if (!Bun.file(pathConfig.response).exists()) {
+        throw new ConfigValidationError(
+          `Invalid response: Neither a valid JSON string nor an existing file path for ${pathConfig.path}`
+        );
+      }
+    }
   }
 
-  if (pathConfig.validationSchema && typeof pathConfig.validationSchema !== 'object') {
-    console.error(chalk.red(`Invalid validation schema for path ${pathConfig.path}`));
-    process.exit(1);
+  if (
+    pathConfig.validationSchema &&
+    typeof pathConfig.validationSchema !== "object"
+  ) {
+    throw new ConfigValidationError(`Invalid validation schema for path ${pathConfig.path}`);
   }
 }

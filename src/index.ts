@@ -1,11 +1,11 @@
 #!/usr/bin/env bun
-import yargs from 'yargs-parser';
-import { serve } from 'bun';
-import chalk from 'chalk';
-import { validateConfig, loadConfigFile } from './configValidator.ts';
-import { handleRequest } from './requestHandler.ts';
-import { logRequest, logResponse } from './logger.ts';
-import { Config } from './types.ts';
+import yargs from "yargs-parser";
+import chalk from "chalk";
+import { loadConfigFile } from "./configValidator";
+import { Config } from "./types";
+import { processManager } from "./processManager";
+import { initializeIPC } from './ipc';
+import { logger } from './logger';
 
 const args = yargs(process.argv.slice(2));
 
@@ -17,32 +17,38 @@ if (args.c) {
   config = {
     port: args.p ? Number(args.p) : 3000,
     host: args.h || undefined,
-    paths: [{
-      path: args._ && args._[0] ? args._[0] : args.P || '/',
-      methods: args.m ? args.m.split(',') : undefined,
-      response: args.r,
-      statusCode: args.s || 200,
-      validationSchema: args.V ? JSON.parse(args.V) : undefined,
-      headers: args.H ? JSON.parse(args.H) : undefined,
-    }],
+    paths: [
+      {
+        path: (args._ && args._[0]) ? args._[0] : args.P || "/",
+        methods: args.m ? args.m.split(",") : undefined,
+        response: args.r,
+        statusCode: args.s || 200,
+        validationSchema: args.V ? JSON.parse(args.V) : undefined,
+        headers: args.H ? JSON.parse(args.H) : undefined,
+      },
+    ],
   };
 }
 
-validateConfig(config);
+async function main() {
+  await initializeIPC();
 
-serve({
-  port: config.port,
-  hostname: config.host,
-  fetch: async (req) => {
-    const loggedReq = await logRequest(req);
-    const pathConfig = config.paths.find(p => new URL(req.url).pathname === p.path);
-    if (!pathConfig) {
-      return new Response('Not Found', { status: 404 });
-    }
-    const response = await handleRequest(loggedReq, pathConfig);
-    logResponse(response);
-    return response;
-  },
+  const started = await processManager.start(config);
+
+  if (!started) {
+    console.log(
+      chalk.yellow("Configuration added to existing instance. This process will now exit.")
+    );
+    process.exit(0);
+  }
+
+  process.on("SIGINT", () => {
+    processManager.shutdown();
+    process.exit(0);
+  });
+}
+
+main().catch(error => {
+  logger.log('ERROR', 'An error occurred:', error);
+  process.exit(1);
 });
-
-console.log(chalk.green(`Server running at http://${config.host || 'localhost'}:${config.port}`));
