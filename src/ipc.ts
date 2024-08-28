@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events';
 import * as net from 'node:net';
 import { Config } from "./types";
 import { storeIPCPort, getStoredIPCPort, clearStoredIPCPort } from "./storage";
@@ -34,16 +35,23 @@ async function findAvailablePort(start: number, end: number): Promise<number> {
 export class IPCServer {
   private server: net.Server;
   private port: number | null = null;
+  private sockets: Set<net.Socket> = new Set();
+  private httpPort: number;
 
-  constructor(private onMessage: (message: Message) => void) {
+  constructor(private onMessage: (message: Message) => void, httpPort: number) {
+    this.httpPort = httpPort;
     this.server = net.createServer((socket) => {
+      this.sockets.add(socket);
       socket.on('data', (data) => {
         try {
           const message = JSON.parse(data.toString()) as Message;
           this.onMessage(message);
         } catch (err) {
-          logger.log('ERROR', 'Error parsing IPC message:', err);
+          logger.error('Error parsing IPC message:', err);
         }
+      });
+      socket.on('close', () => {
+        this.sockets.delete(socket);
       });
     });
   }
@@ -55,15 +63,15 @@ export class IPCServer {
         await new Promise<void>((resolve, reject) => {
           // @ts-ignore
           this.server.listen(this.port, '127.0.0.1', () => {
-            logger.log('DEBUG', `IPC server listening on 127.0.0.1:${this.port}`);
+            logger.debug(`IPC server listening on 127.0.0.1:${this.port}`);
             resolve();
           });
           this.server.on('error', reject);
         });
-        await storeIPCPort(this.port); // Store the port after successful start
+        await storeIPCPort(this.httpPort, this.port); // Store the port after successful start
         return; // Successfully started, exit the loop
       } catch (err) {
-        logger.log('ERROR', `Failed to start IPC server (attempt ${i + 1}/${MAX_RETRIES}):`, err);
+        logger.error(`Failed to start IPC server (attempt ${i + 1}/${MAX_RETRIES}):`, err);
         if (i === MAX_RETRIES - 1) {
           throw new Error('Failed to start IPC server after multiple attempts');
         }
@@ -79,30 +87,33 @@ export class IPCServer {
   }
 
   async close(): Promise<void> {
+    for (const socket of this.sockets) {
+      socket.destroy();
+    }
     await new Promise<void>((resolve) => {
       this.server.close(() => resolve());
     });
-    await clearStoredIPCPort(); // Clear the stored port when closing the server
-    logger.log('DEBUG', 'IPC server closed and port cleared');
+    await clearStoredIPCPort(this.httpPort); // Clear the stored port when closing the server
+    logger.debug(`IPC server closed and port cleared for HTTP port ${this.httpPort}`);
   }
 }
 
-export class IPCClient {
+export class IPCClient extends EventEmitter {
   private socket: net.Socket | null = null;
 
-  async connect(): Promise<boolean> {
+  async connect(httpPort: number): Promise<boolean> {
     // First, try to get the stored port
-    const storedPort = await getStoredIPCPort();
+    const storedPort = await getStoredIPCPort(httpPort);
     if (storedPort !== null) {
       try {
         await this.connectToPort(storedPort);
-        logger.log('DEBUG', `Connected to IPC server on stored port ${storedPort}`);
+        logger.debug(`Connected to IPC server on stored port ${storedPort}`);
         return true;
       } catch (err) {
-        logger.log('DEBUG', `Failed to connect to stored port ${storedPort}, trying other ports...`);
+        logger.debug(`Failed to connect to stored port ${storedPort}, trying other ports...`);
       }
     }
-    logger.log('DEBUG', 'Failed to connect to IPC server');
+    logger.debug('Failed to connect to IPC server');
     return false;
   }
 
@@ -114,6 +125,9 @@ export class IPCClient {
         this.socket?.destroy();
         this.socket = null;
         reject(err);
+      });
+      this.socket.on('close', () => {
+        this.emit('close');
       });
     });
   }
@@ -140,12 +154,4 @@ export class IPCClient {
       this.socket.destroy();
     }
   }
-}
-
-export async function initializeIPC(): Promise<number> {
-  const server = new IPCServer(() => {}); // Dummy message handler
-  await server.start();
-  const port = server.getPort();
-  await server.close();
-  return port;
 }

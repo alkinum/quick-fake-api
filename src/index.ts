@@ -4,10 +4,14 @@ import chalk from "chalk";
 import { loadConfigFile } from "./configValidator";
 import { Config } from "./types";
 import { processManager } from "./processManager";
-import { initializeIPC } from './ipc';
 import { logger } from './logger';
+import { setVerboseMode } from './logger';
 
 const args = yargs(process.argv.slice(2));
+
+// 添加 verbose 参数处理
+const verbose = args.verbose || false;
+setVerboseMode(verbose);
 
 let config: Config;
 
@@ -30,25 +34,38 @@ if (args.c) {
   };
 }
 
+logger.debug('Config:', config);
+
 async function main() {
-  await initializeIPC();
+  const hasRunningInstance = await processManager.start(config);
 
-  const started = await processManager.start(config);
-
-  if (!started) {
+  if (!hasRunningInstance) {
     console.log(
-      chalk.yellow("Configuration added to existing instance. This process will now exit.")
+      chalk.yellow("Configuration added to existing instance. This process will remain running until you close it or the existing instance closes.")
     );
-    process.exit(0);
+
+    await processManager.waitForExistingInstanceToClose();
+
+    console.log(chalk.green("Existing instance has closed. Attempting to restart..."));
+    await processManager.start(config);
   }
 
-  process.on("SIGINT", () => {
-    processManager.shutdown();
+  const cleanup = async () => {
+    await processManager.shutdown();
     process.exit(0);
+  };
+
+  process.on("exit", cleanup);
+  process.on("SIGINT", cleanup);
+  process.on("SIGTERM", cleanup);
+
+  process.on("uncaughtException", async (error) => {
+    logger.error('Uncaught exception:', error);
+    await cleanup();
   });
 }
 
 main().catch(error => {
-  logger.log('ERROR', 'An error occurred:', error);
+  logger.error('Main process error:', error);
   process.exit(1);
 });

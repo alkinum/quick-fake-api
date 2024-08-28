@@ -1,54 +1,38 @@
 import chalk from 'chalk';
 
-type LogLevel = 'INFO' | 'WARN' | 'ERROR' | 'DEBUG';
+let verboseMode = false;
 
-class Logger {
-  log(level: LogLevel, message: string, ...args: any[]): void {
-    const color = this.getColor(level);
-    // @ts-ignore
-    console.log(chalk[color](`[${level}] ${message}`), ...args);
-  }
-
-  private getColor(level: LogLevel): keyof typeof chalk {
-    switch (level) {
-      case 'INFO':
-        return 'cyan';
-      case 'WARN':
-        return 'yellow';
-      case 'ERROR':
-        return 'red';
-      case 'DEBUG':
-        return 'magenta';
-      default:
-        return 'white';
-    }
-  }
+export function setVerboseMode(mode: boolean) {
+  verboseMode = mode;
 }
 
-const logger = new Logger();
+export const logger = {
+  debug: (...messages: any[]) => {
+    if (!verboseMode) return;
+    logWithLevel('DEBUG', chalk.blue, ...messages);
+  },
+  info: (...messages: any[]) => {
+    logWithLevel('INFO', chalk.green, ...messages);
+  },
+  warn: (...messages: any[]) => {
+    logWithLevel('WARN', chalk.yellow, ...messages);
+  },
+  error: (...messages: any[]) => {
+    logWithLevel('ERROR', chalk.red, ...messages);
+  }
+};
+
+function logWithLevel(level: string, colorFunc: (str: string) => string, ...messages: any[]) {
+  const timestamp = new Date().toISOString();
+  const coloredLevel = colorFunc(level);
+  console.log(`${timestamp} [${coloredLevel}]`, ...messages);
+}
 
 export async function logRequest(req: Request): Promise<Request> {
-  const { method, url, headers } = req;
-  const body = req.headers.get('content-type') === 'application/json' ? await req.json() : undefined;
-
-  logger.log('INFO', 'Incoming Request:');
-  logger.log('INFO', `${method} ${url}`);
-  logger.log('DEBUG', 'Headers:', headers);
-  if (body) {
-    logger.log('DEBUG', 'Body:', body);
-  }
-
-  return new Request(req.url, {
-    method: req.method,
-    headers: req.headers,
-    body: JSON.stringify(body),
-  });
+  logger.info(`Incoming ${req.method} request to ${req.url}`);
+  return req;
 }
 
 export function logResponse(res: Response): void {
-  logger.log('INFO', 'Outgoing Response:');
-  logger.log('INFO', `Status: ${res.status}`);
-  logger.log('DEBUG', 'Headers:', res.headers);
+  logger.info(`Outgoing response with status ${res.status}`);
 }
-
-export { logger, LogLevel };

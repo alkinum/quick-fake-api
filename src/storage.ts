@@ -4,39 +4,48 @@ import { tmpdir } from "node:os";
 import { logger } from './logger';
 
 const TMP_DIR = tmpdir();
-const IPC_PORT_FILE = "ipc-port.tmp";
 
-export async function storeIPCPort(port: number): Promise<void> {
+function getIPCPortFileName(httpPort: number): string {
+  return `ipc-port-${httpPort}.tmp`;
+}
+
+export async function storeIPCPort(httpPort: number, ipcPort: number): Promise<void> {
   try {
-    const filePath = join(TMP_DIR, IPC_PORT_FILE);
-    await Bun.write(filePath, port.toString());
+    const fileName = getIPCPortFileName(httpPort);
+    const filePath = join(TMP_DIR, fileName);
+    await Bun.write(filePath, ipcPort.toString());
   } catch (error) {
-    logger.log('ERROR', "Error storing IPC port:", error);
+    logger.error("Error storing IPC port:", error);
     throw error;
   }
 }
 
-export async function getStoredIPCPort(): Promise<number | null> {
+export async function getStoredIPCPort(httpPort: number): Promise<number | null> {
   try {
-    const filePath = join(TMP_DIR, IPC_PORT_FILE);
+    const fileName = getIPCPortFileName(httpPort);
+    const filePath = join(TMP_DIR, fileName);
     const file = Bun.file(filePath);
     if (await file.exists()) {
       const portString = await file.text();
+      if (!portString) {
+        return null;
+      }
       return parseInt(portString, 10);
     }
     return null;
   } catch (error) {
-    logger.log('ERROR', "Error reading stored IPC port:", error);
+    logger.error("Error reading stored IPC port:", error);
     throw error;
   }
 }
 
-export async function clearStoredIPCPort(): Promise<void> {
+export async function clearStoredIPCPort(httpPort: number): Promise<void> {
   try {
-    const filePath = join(TMP_DIR, IPC_PORT_FILE);
+    const fileName = getIPCPortFileName(httpPort);
+    const filePath = join(TMP_DIR, fileName);
     await Bun.write(filePath, ''); // Overwrite with empty string
   } catch (error) {
-    logger.log('ERROR', "Error clearing stored IPC port:", error);
+    logger.error("Error clearing stored IPC port:", error);
     throw error;
   }
 }

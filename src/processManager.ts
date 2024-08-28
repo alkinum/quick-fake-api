@@ -4,6 +4,10 @@ import { validateConfig } from './configValidator';
 import { handleRequest } from './requestHandler';
 import { logRequest, logResponse, logger } from './logger';
 import { IPCServer, IPCClient } from './ipc';
+import { clearStoredIPCPort } from './storage';
+
+const MAX_RETRY_ATTEMPTS = 3;
+const RETRY_DELAY = 1000; // 1 second
 
 class ProcessManager {
   private static instance: ProcessManager;
@@ -12,6 +16,7 @@ class ProcessManager {
   private ipcServer: IPCServer | null = null;
   private ipcClient: IPCClient | null = null;
   private port: number | null = null;
+  private existingInstanceClosedPromise: Promise<void> | null = null;
 
   private constructor() {}
 
@@ -23,24 +28,49 @@ class ProcessManager {
   }
 
   async start(config: Config): Promise<boolean> {
-    // Check if this is the first instance by attempting to connect to IPC server
-    const tempClient = new IPCClient();
-    const isConnected = await tempClient.connect();
-    tempClient.close();
+    this.ipcClient = new IPCClient();
 
-    if (isConnected) {
-      // Another instance is already running
-      this.ipcClient = new IPCClient();
-      await this.ipcClient.connect();
-      this.ipcClient.sendMessage({
-        type: "ADD_CONFIG",
-        pid: process.pid,
-        config,
-      });
-      return false;
+    for (let attempt = 0; attempt < MAX_RETRY_ATTEMPTS; attempt++) {
+      const isConnected = await this.ipcClient.connect(config.port);
+      if (isConnected) {
+        // Other instance is running
+        await this.ipcClient.sendMessage({
+          type: "ADD_CONFIG",
+          pid: process.pid,
+          config,
+        });
+        this.existingInstanceClosedPromise = new Promise<void>((resolve) => {
+          this.ipcClient!.on('close', () => {
+            resolve();
+          });
+        });
+        return false;
+      }
+
+      if (attempt < MAX_RETRY_ATTEMPTS - 1) {
+        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+      }
     }
 
-    // This is the first instance, start the server
+    this.ipcClient.close();
+    this.ipcClient = null;
+
+    await clearStoredIPCPort(config.port);
+
+    return this.startAsFirstInstance(config);
+  }
+
+  async waitForExistingInstanceToClose(): Promise<void> {
+    if (this.existingInstanceClosedPromise) {
+      await this.existingInstanceClosedPromise;
+      this.existingInstanceClosedPromise = null;
+    }
+  }
+
+  private async startAsFirstInstance(config: Config): Promise<boolean> {
+    this.ipcServer = new IPCServer(this.handleIPCMessage.bind(this), config.port);
+    await this.ipcServer.start();
+
     this.port = config.port;
     this.configs.clear();
     this.addConfig(config);
@@ -61,9 +91,11 @@ class ProcessManager {
       },
     });
 
-    this.ipcServer = new IPCServer(this.handleIPCMessage.bind(this));
+    logger.info(`Http server is running at http://${config.host || "localhost"}:${this.port}`);
 
-    logger.log('INFO', `Server running at http://${config.host || "localhost"}:${this.port}`);
+    await this.ipcServer.start();
+    logger.info(`IPC server is running at ${this.ipcServer.getPort()}`);
+
     return true;
   }
 
@@ -87,12 +119,12 @@ class ProcessManager {
   private addConfig(config: Config, pid: number = process.pid): void {
     validateConfig(config);
     this.configs.set(pid, config);
-    logger.log('INFO', `Added configuration for PID ${pid}`);
+    logger.info(`Added configuration for PID ${pid}`);
   }
 
   removeConfig(pid: number): void {
     this.configs.delete(pid);
-    logger.log('WARN', `Removed configuration for PID ${pid}`);
+    logger.info(`Removed configuration for PID ${pid}`);
   }
 
   private findPathConfig(pathname: string) {
@@ -103,20 +135,21 @@ class ProcessManager {
     return null;
   }
 
-  shutdown(): void {
+  async shutdown(): Promise<void> {
     if (this.ipcClient) {
-      this.ipcClient.sendMessage({
+      await this.ipcClient.sendMessage({
         type: "REMOVE_CONFIG",
         pid: process.pid,
       });
       this.ipcClient.close();
     }
     if (this.ipcServer) {
-      this.ipcServer.close();
+      await this.ipcServer.close();
     }
     if (this.server) {
       this.server.stop();
     }
+    logger.info('Process manager shutdown complete');
   }
 }
 

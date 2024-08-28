@@ -36,7 +36,7 @@ describe("handleRequest", () => {
     const response = await handleRequest(req, pathConfig);
     expect(response.status).toBe(400);
     const responseBody = await response.json();
-    expect(responseBody.error).toBe("Invalid request body");
+    expect(responseBody.error).toBe("Invalid request data");
   });
 
   test("should return JSON response", async () => {

@@ -1,0 +1,20 @@
+port: 8080
+paths:
+  - path: /
+    statusCode: 200
+  - path: /users
+    methods: [GET]
+    statusCode: 200
+  - path: /create
+    methods: [POST]
+    statusCode: 201
+    response: '{"key": "value"}'
+  - path: /validate
+    methods: [POST]
+    statusCode: 200
+    validationSchema:
+      type: object
+      properties:
+        name:
+          type: string
+      required: [name]

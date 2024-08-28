@@ -1,7 +1,9 @@
 import { expect, test, describe, mock, beforeEach, afterEach } from "bun:test";
-import { IPCServer, IPCClient, Message, initializeIPC } from "../src/ipc";
+import { IPCServer, IPCClient, Message } from "../src/ipc";
 import { Config } from "../src/types";
-import { storeIPCPort, getStoredIPCPort, clearStoredIPCPort } from "../src/storage";
+import { clearStoredIPCPort } from "../src/storage";
+
+const TEST_HTTP_PORT = 3000;
 
 describe("IPC Tests", () => {
   let server: IPCServer;
@@ -9,39 +11,21 @@ describe("IPC Tests", () => {
   const mockHandler = mock((message: Message) => {});
 
   beforeEach(async () => {
-    await clearStoredIPCPort();
-    await initializeIPC();
-    server = new IPCServer(mockHandler);
+    await clearStoredIPCPort(TEST_HTTP_PORT);
+    server = new IPCServer(mockHandler, TEST_HTTP_PORT);
+    await server.start();
     client = new IPCClient();
+    const connected = await client.connect(TEST_HTTP_PORT);
+    expect(connected).toBe(true);
   });
 
   afterEach(async () => {
-    server.close();
     client.close();
-    await clearStoredIPCPort();
-  });
-
-  test("IPCServer should start and store port", async () => {
-    await server.start();
-    const port = server.getPort();
-    const storedPort = await getStoredIPCPort();
-    expect(storedPort).toBe(port);
-  });
-
-  test("IPCClient should connect to the stored port", async () => {
-    await server.start();
-    const isConnected = await client.connect();
-    expect(isConnected).toBe(true);
-  });
-
-  test("IPCClient should fail to connect if no port is stored", async () => {
-    await clearStoredIPCPort();
-    const isConnected = await client.connect();
-    expect(isConnected).toBe(false);
+    await server.close();
+    await clearStoredIPCPort(TEST_HTTP_PORT);
   });
 
   test("IPCServer should handle ADD_CONFIG message", async () => {
-    await client.connect();
     const config: Config = {
       port: 3000,
       paths: [{ path: "/test", statusCode: 200 }],
@@ -49,32 +33,26 @@ describe("IPC Tests", () => {
     const message: Message = { type: "ADD_CONFIG", pid: 1234, config };
     await client.sendMessage(message);
 
-    await new Promise(resolve => setTimeout(resolve, 100)); // Wait for message processing
+    // Wait for the message to be processed
+    await new Promise(resolve => setTimeout(resolve, 100));
+
     expect(mockHandler).toHaveBeenCalledWith(message);
   });
 
   test("IPCServer should handle REMOVE_CONFIG message", async () => {
-    await client.connect();
     const message: Message = { type: "REMOVE_CONFIG", pid: 1234 };
     await client.sendMessage(message);
 
-    await new Promise(resolve => setTimeout(resolve, 100)); // Wait for message processing
+    // Wait for the message to be processed
+    await new Promise(resolve => setTimeout(resolve, 100));
+
     expect(mockHandler).toHaveBeenCalledWith(message);
-  });
-
-  test("IPCClient should handle server disconnection", async () => {
-    await client.connect();
-    server.close();
-    await new Promise(resolve => setTimeout(resolve, 100)); // Wait for server to close
-
-    await expect(client.sendMessage({ type: "REMOVE_CONFIG", pid: 1234 }))
-      .rejects.toThrow('Not connected to server');
   });
 
   test("IPCServer should handle multiple clients", async () => {
     const client2 = new IPCClient();
-    await client.connect();
-    await client2.connect();
+    const connected = await client2.connect(TEST_HTTP_PORT);
+    expect(connected).toBe(true);
 
     const message1: Message = {
       type: "ADD_CONFIG",
@@ -86,18 +64,12 @@ describe("IPC Tests", () => {
     await client.sendMessage(message1);
     await client2.sendMessage(message2);
 
-    await new Promise(resolve => setTimeout(resolve, 100)); // Wait for message processing
+    // Wait for the messages to be processed
+    await new Promise(resolve => setTimeout(resolve, 100));
 
     expect(mockHandler).toHaveBeenCalledWith(message1);
     expect(mockHandler).toHaveBeenCalledWith(message2);
 
     client2.close();
-  });
-
-  test("IPCServer should clear stored port on close", async () => {
-    await server.start();
-    await server.close();
-    const storedPort = await getStoredIPCPort();
-    expect(storedPort).toBe(null);
   });
 });

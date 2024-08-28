@@ -16,7 +16,7 @@ async function getResponseBody(response: string): Promise<{ body: string | Array
       return { body: await file.arrayBuffer(), contentType: file.type };
     }
   } catch (error) {
-    logger.log('ERROR', 'Error reading file:', error);
+    logger.error('Error reading file:', error);
     // File operation failed, fall through to return as plain text
   }
 
@@ -31,9 +31,26 @@ export async function handleRequest(req: Request, pathConfig: PathConfig): Promi
   if (pathConfig.validationSchema) {
     const ajv = new Ajv();
     const validate = ajv.compile(pathConfig.validationSchema);
-    const body = await req.json();
-    if (!validate(body)) {
-      return new Response(JSON.stringify({ error: 'Invalid request body', details: validate.errors }), {
+    let dataToValidate: unknown;
+
+    try {
+      if (req.method === 'GET') {
+        const url = new URL(req.url);
+        const queryParams = Object.fromEntries(url.searchParams);
+        dataToValidate = { ...queryParams, ...(await req.json().catch(() => ({}))) };
+      } else {
+        dataToValidate = await req.json();
+      }
+    } catch (error) {
+      logger.error('Error parsing request data:', error);
+      return new Response(JSON.stringify({ error: 'Invalid request data' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    if (!validate(dataToValidate)) {
+      return new Response(JSON.stringify({ error: 'Invalid request data', details: validate.errors }), {
         status: 400,
         headers: { 'Content-Type': 'application/json' },
       });
