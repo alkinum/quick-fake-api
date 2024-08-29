@@ -33,12 +33,12 @@ async function findAvailablePort(start: number, end: number): Promise<number> {
 }
 
 export type Message = {
-  type: "ADD_CONFIG" | "REMOVE_CONFIG";
+  type: "ADD_CONFIG" | "REMOVE_CONFIG" | "SERVER_CLOSING";
   pid: number;
   config?: Config;
 };
 
-export class IPCServer {
+export class IPCServer extends EventEmitter {
   private server: net.Server;
   private port: number | null = null;
   private sockets: Map<net.Socket, number> = new Map(); // Changed to Map, storing socket and PID
@@ -46,7 +46,8 @@ export class IPCServer {
   private connectionTimeouts: Map<number, ReturnType<typeof setTimeout>> = new Map(); // New: storing PID and timeout timer
   private readonly RECONNECT_TIMEOUT = 5000; // 5 seconds reconnection timeout
 
-  constructor(private onMessage: (message: Message) => void, private onDisconnect: (pid: number) => void, httpPort: number) {
+  public constructor(private onMessage: (message: Message) => void, private onDisconnect: (pid: number) => void, httpPort: number) {
+    super();
     this.httpPort = httpPort;
     this.server = net.createServer((socket) => {
       socket.on('data', (data) => {
@@ -55,6 +56,7 @@ export class IPCServer {
           this.onMessage(message);
           this.sockets.set(socket, message.pid); // Store socket and PID mapping
           this.clearConnectionTimeout(message.pid); // Clear reconnection timeout
+          this.emit('message', message); // Emit the message event
         } catch (err) {
           logger.error('Error parsing IPC message:', err);
         }
@@ -85,7 +87,7 @@ export class IPCServer {
     }
   }
 
-  async start(): Promise<void> {
+  public async start(): Promise<void> {
     for (let i = 0; i < MAX_RETRIES; i++) {
       try {
         this.port = await findAvailablePort(IPC_PORT_RANGE_START, IPC_PORT_RANGE_END);
@@ -108,22 +110,38 @@ export class IPCServer {
     }
   }
 
-  getPort(): number {
+  public getPort(): number {
     if (this.port === null) {
-      throw new Error('IPC server has not been started');
+      throw new Error('IPC server has not been started.');
     }
     return this.port;
   }
 
-  async close(): Promise<void> {
-    for (const socket of this.sockets) {
-      socket[0].destroy();
+  public async close(): Promise<void> {
+    logger.debug("Closing IPCServer...");
+    this.removeAllListeners();
+    for (const [socket, pid] of this.sockets) {
+      logger.debug(`Destroying socket for PID ${pid}.`);
+      socket.destroy();
     }
-    await new Promise<void>((resolve) => {
-      this.server.close(() => resolve());
+    this.sockets.clear();
+
+    for (const [pid, timeout] of this.connectionTimeouts) {
+      clearTimeout(timeout);
+    }
+    this.connectionTimeouts.clear();
+
+    return new Promise<void>((resolve, reject) => {
+      this.server.close((err) => {
+        if (err) {
+          logger.error("Error closing server:", err);
+          reject(err);
+        } else {
+          logger.debug("Server closed successfully.");
+          resolve();
+        }
+      });
     });
-    await clearStoredIPCPort(this.httpPort); // Clear the stored port when closing the server
-    logger.debug(`IPC server closed and port cleared for HTTP port ${this.httpPort}`);
   }
 }
 
@@ -141,8 +159,9 @@ export class IPCClient extends EventEmitter {
   private maxReconnectAttempts: number = 5;
   private reconnectDelay: number = 1000;
   private hasEverConnected: boolean = false;
+  private serverClosing: boolean = false;
 
-  async connect(httpPort: number): Promise<ConnectionResult> {
+  public async connect(httpPort: number): Promise<ConnectionResult> {
     this.httpPort = httpPort;
     const result = await this.attemptConnection();
     if (result === ConnectionResult.Connected) {
@@ -188,15 +207,28 @@ export class IPCClient extends EventEmitter {
 
     this.socket.on('close', () => {
       this.emit('close');
-      if (this.hasEverConnected) {
+      if (this.hasEverConnected && !this.serverClosing) {
         this.attemptReconnect();
       }
     });
 
     this.socket.on('error', (error) => {
       logger.error('Socket error:', error);
-      if (this.hasEverConnected) {
+      if (this.hasEverConnected && !this.serverClosing) {
         this.attemptReconnect();
+      }
+    });
+
+    this.socket.on('data', (data) => {
+      try {
+        const message = JSON.parse(data.toString()) as Message;
+        if (message.type === "SERVER_CLOSING") {
+          this.serverClosing = true;
+          logger.info('Server is closing. Will not attempt to reconnect.');
+          this.close();
+        }
+      } catch (err) {
+        logger.error('Error parsing IPC message:', err);
       }
     });
   }
@@ -247,10 +279,22 @@ export class IPCClient extends EventEmitter {
     });
   }
 
-  close(): void {
-    if (this.socket) {
-      this.socket.destroy();
-      this.socket = null;
-    }
+  async close(): Promise<void> {
+    logger.debug("Closing IPCClient");
+    this.removeAllListeners();
+    this.serverClosing = true;
+    return new Promise<void>((resolve) => {
+      if (this.socket) {
+        this.socket.end(() => {
+          logger.debug("Socket ended");
+          this.socket = null;
+          resolve();
+        });
+      } else {
+        logger.debug("No socket to close");
+        resolve();
+      }
+    });
   }
 }
+

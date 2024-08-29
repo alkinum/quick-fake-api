@@ -1,2 +1,4 @@
 .history
+.*.tmp
 node_modules
+dist

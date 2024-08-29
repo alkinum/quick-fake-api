@@ -6,7 +6,7 @@ Quick Fake API is a versatile CLI tool for quickly setting up mock API endpoints
 
 ### macOS and Linux
 
-1. Download the latest `quick-fake-api` binary from the [releases page](https://github.com/alkinum/quick-fake-api/releases).
+1. Download the latest `fake-api` binary from the [releases page](https://github.com/alkinum/quick-fake-api/releases).
 2. Make the binary executable:
    ```
    chmod +x quick-fake-api
@@ -18,7 +18,7 @@ Quick Fake API is a versatile CLI tool for quickly setting up mock API endpoints
 
 ### Windows
 
-1. Download the latest `quick-fake-api.exe` from the [releases page](https://github.com/alkinum/quick-fake-api/releases).
+1. Download the latest `fake-api.exe` from the [releases page](https://github.com/alkinum/quick-fake-api/releases).
 2. Move the executable to a directory in your PATH, or add the directory containing the executable to your PATH environment variable.
 
 ## Usage
@@ -28,7 +28,7 @@ You can run the tool using command-line arguments or by providing a configuratio
 ### Command-line Usage
 
 ```bash
-quick-fake-api [options] [path]
+fake-api [options] [path]
 ```
 
 

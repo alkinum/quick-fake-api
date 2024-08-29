@@ -4,9 +4,7 @@
   "description": "A versatile CLI tool for quickly setting up mock API endpoints",
   "main": "src/index.ts",
   "scripts": {
-    "build": "bun build ./src/index.ts --compile --outfile quick-fake-api",
-    "typecheck": "tsc --noEmit",
-    "prebuild": "npm run typecheck",
+    "build": "bun run build/build.ts",
     "test": "bun test"
   },
   "dependencies": {
@@ -22,6 +20,8 @@
   },
   "type": "module",
   "author": "alkinum.io",
-  "maintainers": ["BackRunner"],
+  "maintainers": [
+    "BackRunner"
+  ],
   "license": "MIT"
 }
