@@ -6,20 +6,35 @@ Quick Fake API is a versatile CLI tool for quickly setting up mock API endpoints
 
 ### macOS and Linux
 
-1. Download the latest `fake-api` binary from the [releases page](https://github.com/alkinum/quick-fake-api/releases).
+1. Download the latest binary for your platform from the [releases page](https://github.com/alkinum/quick-fake-api/releases).
+   - For macOS (Intel): `fake-api-macos-x64`
+   - For macOS (Apple Silicon): `fake-api-macos-arm64`
+   - For Linux (x64): `fake-api-linux-x64`
+   - For Linux (ARM64): `fake-api-linux-arm64`
+
 2. Make the binary executable:
    ```
-   chmod +x quick-fake-api
+   chmod +x fake-api-<platform>
    ```
-3. Move the binary to a directory in your PATH, for example:
+   Replace `<platform>` with your specific platform (e.g., `macos-x64`, `linux-arm64`, etc.).
+
+3. Optionally, rename the binary for easier use:
    ```
-   sudo mv quick-fake-api /usr/local/bin/
+   mv fake-api-<platform> fake-api
+   ```
+
+4. Move the binary to a directory in your PATH, for example:
+   ```
+   sudo mv fake-api /usr/local/bin/
    ```
 
 ### Windows
 
-1. Download the latest `fake-api.exe` from the [releases page](https://github.com/alkinum/quick-fake-api/releases).
-2. Move the executable to a directory in your PATH, or add the directory containing the executable to your PATH environment variable.
+1. Download the latest `fake-api-windows-x64` from the [releases page](https://github.com/alkinum/quick-fake-api/releases).
+
+2. Optionally, rename the file to `fake-api.exe` for easier use.
+
+3. Move the executable to a directory in your PATH, or add the directory containing the executable to your PATH environment variable.
 
 ## Usage
 
