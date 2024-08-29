@@ -1,5 +1,5 @@
 import { expect, test, describe, mock, beforeEach, afterEach } from "bun:test";
-import { IPCServer, IPCClient, Message } from "../src/ipc";
+import { IPCServer, IPCClient, Message, ConnectionResult } from "../src/ipc";
 import { Config } from "../src/types";
 import { clearStoredIPCPort } from "../src/storage";
 
@@ -9,14 +9,13 @@ describe("IPC Tests", () => {
   let server: IPCServer;
   let client: IPCClient;
   const mockHandler = mock((message: Message) => {});
+  const mockDisconnectHandler = mock((pid: number) => {});
 
   beforeEach(async () => {
     await clearStoredIPCPort(TEST_HTTP_PORT);
-    server = new IPCServer(mockHandler, TEST_HTTP_PORT);
+    server = new IPCServer(mockHandler, mockDisconnectHandler, TEST_HTTP_PORT);
     await server.start();
     client = new IPCClient();
-    const connected = await client.connect(TEST_HTTP_PORT);
-    expect(connected).toBe(true);
   });
 
   afterEach(async () => {
@@ -25,7 +24,13 @@ describe("IPC Tests", () => {
     await clearStoredIPCPort(TEST_HTTP_PORT);
   });
 
+  test("IPCClient should connect successfully", async () => {
+    const connectionResult = await client.connect(TEST_HTTP_PORT);
+    expect(connectionResult).toBe(ConnectionResult.Connected);
+  });
+
   test("IPCServer should handle ADD_CONFIG message", async () => {
+    await client.connect(TEST_HTTP_PORT);
     const config: Config = {
       port: 3000,
       paths: [{ path: "/test", statusCode: 200 }],
@@ -40,6 +45,7 @@ describe("IPC Tests", () => {
   });
 
   test("IPCServer should handle REMOVE_CONFIG message", async () => {
+    await client.connect(TEST_HTTP_PORT);
     const message: Message = { type: "REMOVE_CONFIG", pid: 1234 };
     await client.sendMessage(message);
 
@@ -50,9 +56,10 @@ describe("IPC Tests", () => {
   });
 
   test("IPCServer should handle multiple clients", async () => {
+    await client.connect(TEST_HTTP_PORT);
     const client2 = new IPCClient();
-    const connected = await client2.connect(TEST_HTTP_PORT);
-    expect(connected).toBe(true);
+    const connectionResult = await client2.connect(TEST_HTTP_PORT);
+    expect(connectionResult).toBe(ConnectionResult.Connected);
 
     const message1: Message = {
       type: "ADD_CONFIG",
@@ -71,5 +78,28 @@ describe("IPC Tests", () => {
     expect(mockHandler).toHaveBeenCalledWith(message2);
 
     client2.close();
+  });
+
+  test("IPCClient should handle connection failure", async () => {
+    await server.close(); // Close the server to simulate connection failure
+    const connectionResult = await client.connect(TEST_HTTP_PORT);
+    expect(connectionResult).toBe(ConnectionResult.FailedToConnect);
+  });
+
+  test("IPCClient should handle no stored port", async () => {
+    await clearStoredIPCPort(TEST_HTTP_PORT);
+    const connectionResult = await client.connect(TEST_HTTP_PORT);
+    expect(connectionResult).toBe(ConnectionResult.NoStoredPort);
+  });
+
+  test("IPCServer should call disconnect handler when client disconnects", async () => {
+    await client.connect(TEST_HTTP_PORT);
+    const clientPid = process.pid;
+    client.close();
+
+    // Wait for the disconnection to be processed
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    expect(mockDisconnectHandler).toHaveBeenCalledWith(clientPid);
   });
 });

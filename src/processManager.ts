@@ -3,11 +3,11 @@ import { Config } from './types';
 import { validateConfig } from './configValidator';
 import { handleRequest } from './requestHandler';
 import { logRequest, logResponse, logger } from './logger';
-import { IPCServer, IPCClient } from './ipc';
+import { IPCServer, IPCClient, ConnectionResult } from './ipc';
 import { clearStoredIPCPort } from './storage';
 
 const MAX_RETRY_ATTEMPTS = 3;
-const RETRY_DELAY = 1000; // 1 second
+const RETRY_DELAY = 333; // 333ms
 
 class ProcessManager {
   private static instance: ProcessManager;
@@ -31,24 +31,36 @@ class ProcessManager {
     this.ipcClient = new IPCClient();
 
     for (let attempt = 0; attempt < MAX_RETRY_ATTEMPTS; attempt++) {
-      const isConnected = await this.ipcClient.connect(config.port);
-      if (isConnected) {
-        // Other instance is running
-        await this.ipcClient.sendMessage({
-          type: "ADD_CONFIG",
-          pid: process.pid,
-          config,
-        });
-        this.existingInstanceClosedPromise = new Promise<void>((resolve) => {
-          this.ipcClient!.on('close', () => {
-            resolve();
-          });
-        });
-        return false;
-      }
+      const connectionResult = await this.ipcClient.connect(config.port);
 
-      if (attempt < MAX_RETRY_ATTEMPTS - 1) {
-        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+      switch (connectionResult) {
+        case ConnectionResult.Connected:
+          // Other instance is running
+          await this.ipcClient.sendMessage({
+            type: "ADD_CONFIG",
+            pid: process.pid,
+            config,
+          });
+          this.existingInstanceClosedPromise = new Promise<void>((resolve) => {
+            this.ipcClient!.on('close', () => {
+              resolve();
+            });
+          });
+          return false;
+
+        case ConnectionResult.NoStoredPort:
+          // No need to retry, we're the first instance
+          logger.debug('No stored port found, starting as first instance');
+          return this.startAsFirstInstance(config);
+
+        case ConnectionResult.FailedToConnect:
+          if (attempt < MAX_RETRY_ATTEMPTS - 1) {
+            logger.debug(`Connection attempt ${attempt + 1} failed, retrying...`);
+            await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+          } else {
+            logger.debug('All connection attempts failed, starting as first instance');
+          }
+          break;
       }
     }
 
@@ -68,8 +80,13 @@ class ProcessManager {
   }
 
   private async startAsFirstInstance(config: Config): Promise<boolean> {
-    this.ipcServer = new IPCServer(this.handleIPCMessage.bind(this), config.port);
+    this.ipcServer = new IPCServer(
+      this.handleIPCMessage.bind(this),
+      this.handleDisconnect.bind(this),
+      config.port
+    );
     await this.ipcServer.start();
+    logger.info(`IPC server is running at ${this.ipcServer.getPort()}`);
 
     this.port = config.port;
     this.configs.clear();
@@ -93,9 +110,6 @@ class ProcessManager {
 
     logger.info(`Http server is running at http://${config.host || "localhost"}:${this.port}`);
 
-    await this.ipcServer.start();
-    logger.info(`IPC server is running at ${this.ipcServer.getPort()}`);
-
     return true;
   }
 
@@ -116,15 +130,29 @@ class ProcessManager {
     }
   }
 
+  private handleDisconnect(pid: number): void {
+    this.removeConfig(pid);
+    logger.info(`Client with PID ${pid} disconnected and its configuration removed.`);
+  }
+
   private addConfig(config: Config, pid: number = process.pid): void {
     validateConfig(config);
     this.configs.set(pid, config);
-    logger.info(`Added configuration for PID ${pid}`);
+    const processType = pid === process.pid ? "current" : "external";
+    logger.info(`Added configuration for ${processType} process (PID ${pid})`);
+    logger.debug(`Configuration details:`, config);
   }
 
-  removeConfig(pid: number): void {
-    this.configs.delete(pid);
-    logger.info(`Removed configuration for PID ${pid}`);
+  private removeConfig(pid: number): void {
+    const config = this.configs.get(pid);
+    if (config) {
+      this.configs.delete(pid);
+      const processType = pid === process.pid ? "current" : "external";
+      logger.info(`Removed configuration for ${processType} process (PID ${pid})`);
+      logger.debug(`Removed configuration details:`, config);
+    } else {
+      logger.warn(`Attempted to remove non-existent configuration for PID: ${pid}`);
+    }
   }
 
   private findPathConfig(pathname: string) {
