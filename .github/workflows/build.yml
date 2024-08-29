@@ -45,6 +45,11 @@ jobs:
       with:
         path: artifacts
 
+    - name: List artifacts
+      run: |
+        echo "Artifacts downloaded:"
+        ls -R artifacts
+
     - name: Create Release
       id: create_release
       uses: softprops/action-gh-release@v2
@@ -54,9 +59,9 @@ jobs:
         draft: true
         prerelease: false
         files: |
-          artifacts/linux-x64/fake-api-linux-x64
-          artifacts/linux-arm64/fake-api-linux-arm64
-          artifacts/macos-x64/fake-api-macos-x64
-          artifacts/macos-arm64/fake-api-macos-arm64
-          artifacts/windows-x64/fake-api-windows-x64
+          artifacts/fake-api-linux-x64/fake-api-linux-x64
+          artifacts/fake-api-linux-arm64/fake-api-linux-arm64
+          artifacts/fake-api-macos-x64/fake-api-macos-x64
+          artifacts/fake-api-macos-arm64/fake-api-macos-arm64
+          artifacts/fake-api-windows-x64/fake-api-windows-x64
         generate_release_notes: true
