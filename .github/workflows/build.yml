@@ -60,18 +60,3 @@ jobs:
           artifacts/macos-arm64/fake-api-macos-arm64
           artifacts/windows-x64/fake-api-windows-x64
         generate_release_notes: true
-
-  manual_build:
-    needs: build
-    runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch'
-    steps:
-    - name: Download all artifacts
-      uses: actions/download-artifact@v3
-      with:
-        path: artifacts
-
-    - name: List artifacts
-      run: |
-        echo "Artifacts built:"
-        ls -R artifacts
