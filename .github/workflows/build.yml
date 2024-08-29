@@ -36,6 +36,7 @@ jobs:
   release:
     needs: build
     runs-on: ubuntu-latest
+    if: github.event_name != 'workflow_dispatch'
     steps:
     - uses: actions/checkout@v3
 
@@ -44,30 +45,33 @@ jobs:
       with:
         path: artifacts
 
-    - name: Get current timestamp
-      if: github.event_name == 'workflow_dispatch'
-      id: timestamp
-      run: echo "timestamp=$(date +'%Y%m%d%H%M%S')" >> $GITHUB_OUTPUT
-
     - name: Create Release
       id: create_release
-      uses: actions/create-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      uses: softprops/action-gh-release@v2
       with:
-        tag_name: ${{ github.event_name == 'workflow_dispatch' && format('draft-{0}', steps.timestamp.outputs.timestamp) || github.ref }}
-        release_name: ${{ github.event_name == 'workflow_dispatch' && format('Draft Release {0}', steps.timestamp.outputs.timestamp) || format('Release {0}', github.ref) }}
-        draft: ${{ github.event_name == 'workflow_dispatch' }}
+        tag_name: ${{ github.ref }}
+        name: Release ${{ github.ref }}
+        draft: true
         prerelease: false
+        files: |
+          artifacts/linux-x64/fake-api-linux-x64
+          artifacts/linux-arm64/fake-api-linux-arm64
+          artifacts/macos-x64/fake-api-macos-x64
+          artifacts/macos-arm64/fake-api-macos-arm64
+          artifacts/windows-x64/fake-api-windows-x64
+        generate_release_notes: true
 
-    - name: Upload Release Assets
+  manual_build:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v3
+      with:
+        path: artifacts
+
+    - name: List artifacts
       run: |
-        for file in artifacts/*; do
-          platform=$(basename "$file")
-          asset_path="$file/fake-api-$platform"
-          asset_name="fake-api-$platform"
-          curl -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-               -H "Content-Type: application/octet-stream" \
-               --data-binary @"$asset_path" \
-               "https://uploads.github.com/repos/${{ github.repository }}/releases/${{ steps.create_release.outputs.id }}/assets?name=$asset_name"
-        done
+        echo "Artifacts built:"
+        ls -R artifacts
